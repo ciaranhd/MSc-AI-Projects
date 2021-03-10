@@ -1,5 +1,7 @@
 import pandas as pd
 import re
+import numpy as np
+import sys
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -46,15 +48,13 @@ def cleanse_split_heading_data(split_columns):
     if column_headings[-1] == "":
         column_headings = column_headings[:-1]
     return column_headings, data_frame_dictionary
-
+# encoding='utf-8-sig'
 def create_data_frame(file_name):
     with open(file_name, "r", encoding='utf-8-sig') as f_handle:
         # Empty Cells Will Need To Have An Average Of All Values: Come Back To This
-        average = "Column Average"
 
         # The Data Frame Dictionary Will Be Used To Create A Pandas DataFrame
         data_frame_dictionary = {}
-        #data_frame_dictionary.setdefault("Unknown_Label", [])
 
         # List Of Column Headings Allows Us To Reference The Array As We Store Data Into The Correct Column
         column_headings = []
@@ -92,8 +92,6 @@ def create_data_frame(file_name):
                 # Cleanse The Split Headers Data
                 column_headings, data_frame_dictionary = cleanse_split_heading_data(split_columns)
                 counter = counter + 1
-
-
             # Dealing With The Data (Row 1 +) And Not Headers
             else:
                 for char_position, char in enumerate(line):
@@ -108,25 +106,21 @@ def create_data_frame(file_name):
                             break
                         else:
                             split_location.append(char_position)
-
                 split_data = split(line[:char_position].rstrip(), split_location)
-
                 for i in range(len(split_data)):
                     if split_data[i] == "":
-                        data_frame_dictionary[column_headings[i]].append(average)
+                        data_frame_dictionary[column_headings[i]].append(np.nan)
                     else:
                         # Cleanse Data
                         split_data[i] = re.sub(r'^"|"$', '', split_data[i])
-
                         data_frame_dictionary[column_headings[i]].append(split_data[i])
                 row_number_of_columns = len(split_data)
                 if row_number_of_columns < number_of_columns:
                     for i in range(row_number_of_columns,number_of_columns):
-                        data_frame_dictionary[column_headings[i]].append(average)
+                        data_frame_dictionary[column_headings[i]].append(np.nan)
     return data_frame_dictionary
 
 file_name = ["barometer-1617.csv", "indoor-temperature-1617.csv", "outside-temperature-1617.csv","rainfall-1617.csv"]
-#file_name = ["test.csv"]
 i = 0
 data_frame = None
 previous_file = None
@@ -135,7 +129,6 @@ for file_csv in file_name:
     data_frame_dictionary = pd.DataFrame.from_dict(data_frame_dictionary, orient='index').transpose()
     frame = pd.DataFrame(data_frame_dictionary)
     split_file_name = re.findall(r"[\w']+", file_csv)
-
     if i == 0:
         data_frame = frame
         i = i + 1
@@ -143,19 +136,17 @@ for file_csv in file_name:
     else:
         # Not All Of The Data Frames Have The Same Number Of Rows. The Default Position
         # For Merge Is To Delete Rows Which Are Uncommon To The Data Frames Being Merged
-        data_frame = pd.DataFrame.merge(frame, data_frame, on="DateTime",how='right', suffixes=(f"_{split_file_name[0]}",f"_{previous_file}")).fillna(0)
+        data_frame = pd.DataFrame.merge(frame, data_frame, on="DateTime",how='right', suffixes=(f"_{split_file_name[0]}",f"_{previous_file}"))
         previous_file = split_file_name[0]
-print(data_frame)
 
 
-from IPython.core.display import HTML, display
+header = [column for column in data_frame.head(0)]
+Averages = [[header, data_frame[header].astype(float).mean(skipna=True),data_frame[header].astype(float).std(skipna=True) ] for header in [column for column in data_frame.head(0)] if header != "DateTime"]
+print(Averages)
+table = pd.DataFrame(Averages, columns=["DataType", "Averages", "Standard Deviation"])
+print(table)
+
 pd.set_option('max_colwidth', 20)
-data_frame = data_frame.head(10)
-
-print(data_frame)
-
-
-
 
 #sns.distplot(data_frame["Temperature_outside"])
 #sns.distplot(data_frame["Temperature_range (low)_outside"])
