@@ -1,24 +1,7 @@
-from pandas import DataFrame
+import pandas as pd
 import re
-
-# Use A Dictionary. Create A Default Dictionary. First iterate Through The First Sentence
-# In The Text File Which Will Include The Headers. Save The As Keys In The Default Dictionary
-# Go To The Next Sentence. The First Word Corresponds To The Column
-# If There Is No Value, The Cell Will Take The Average For The Row
-# If The Line Contains Too Few, Then We Will Fill In The Last Cell With The Average
-# If There Are More Cells Than Headers Then We Are Missing A Header. Create A New Unknown Header
-
-# The Dictionary Value Will Be A List, Which We Will Append New Values Too
-
-# Once The Process Is Complete We Will Use The Dictionary And Convert Into A Pandas
-# DataFrame
-
-# We Will Customize CSV's In The Following Ways:
-# i)   Account for | (Tabular CSV's)
-# ii)  Account For Comma's Within Quotation Marks " Therefore, I am" Could Erronously
-#      Be Split. We Will Have a Boolean Definition Which Engages When We Hit A Quotation
-#      Thereby Precluding Splitting When the Boolean Is Engaged. After An Unquote When
-#      The Bool Is Disengaged, When We Encounter A Comma, We Can Split As Normal
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 class quotation_search:
     def __init__(self):
@@ -30,7 +13,6 @@ class quotation_search:
             self.state = False
     def is_quotation_engaged(self):
         return self.state
-
 def split(line, split_location):
     split_list = []
     starting_index = 0
@@ -42,17 +24,33 @@ def split(line, split_location):
     split_data = line[starting_index:]
     split_list.append(split_data)
     return split_list
-
 def delimiter_check(first_sentence):
     if "|" in first_sentence:
         return "|"
     else:
         return ","
+def stray_end_comma_adjustment(final_char_position, split_location_array, number_of_columns):
+    """ A Line Which Contains A Trailing Comma ("DateTime,"mm",)
+        Will Over State The Number of Columns.
+        Action: Reduce The Column Count By One"""
+    if (final_char_position - 1) == split_location_array[-1]:
+         number_of_columns -= 1
+    return number_of_columns
+def cleanse_split_heading_data(split_columns):
+    column_headings = []
+    data_frame_dictionary = {}
+    for column in split_columns:
+        column = re.sub(r'^"|"$', '', column)
+        column_headings.append(column)
+        data_frame_dictionary[column] = []
+    if column_headings[-1] == "":
+        column_headings = column_headings[:-1]
+    return column_headings, data_frame_dictionary
 
 def create_data_frame(file_name):
     with open(file_name, "r", encoding='utf-8-sig') as f_handle:
         # Empty Cells Will Need To Have An Average Of All Values: Come Back To This
-        average = 0
+        average = "Column Average"
 
         # The Data Frame Dictionary Will Be Used To Create A Pandas DataFrame
         data_frame_dictionary = {}
@@ -70,26 +68,32 @@ def create_data_frame(file_name):
 
         # Counter == 0 Allows Us Check The First Row, Which Is Needed For Headers
         counter = 0
+        number_of_columns = 1
         for line in sentences:
+            # Ignore Blank Lines
+            if line == "\n":
+                continue
+            delimiter_count = 0
             # The First Row Is The Headers
             split_location = []
             if counter == 0:
                 # Establish What The Delimiter Is
                 delimiter = delimiter_check(line)
-
                 for char_position, char in enumerate(line):
                     if char == "\"":
                         quotation_obj.quotation_encountered()
                     if char == delimiter and quotation_obj.is_quotation_engaged() == False:
                         split_location.append(char_position)
-
+                        number_of_columns += 1
+                # Stray End Comma Adjustment
+                number_of_columns = stray_end_comma_adjustment(char_position,split_location,number_of_columns)
                 split_columns = split(line.rstrip(), split_location)
 
-                for column in split_columns:
-                    column = re.sub(r'^"|"$', '', column)
-                    column_headings.append(column)
-                    data_frame_dictionary[column] = []
+                # Cleanse The Split Headers Data
+                column_headings, data_frame_dictionary = cleanse_split_heading_data(split_columns)
                 counter = counter + 1
+
+
             # Dealing With The Data (Row 1 +) And Not Headers
             else:
                 for char_position, char in enumerate(line):
@@ -98,38 +102,67 @@ def create_data_frame(file_name):
                     # A Comma Engaged Unbounded By Quotation Marks Is A Split Point
                     # Record The Location In The Line So We Can Split It
                     if char == delimiter and quotation_obj.is_quotation_engaged() == False:
-                        split_location.append(char_position)
+                        delimiter_count = delimiter_count + 1
+                        # Ignore Columns With No Header
+                        if delimiter_count == number_of_columns:
+                            break
+                        else:
+                            split_location.append(char_position)
 
-                split_data = split(line.rstrip(), split_location)
+                split_data = split(line[:char_position].rstrip(), split_location)
+
                 for i in range(len(split_data)):
-                    if split_data[i] == " ":
+                    if split_data[i] == "":
                         data_frame_dictionary[column_headings[i]].append(average)
                     else:
+                        # Cleanse Data
                         split_data[i] = re.sub(r'^"|"$', '', split_data[i])
-                        data_frame_dictionary[column_headings[i]].append(split_data[i])
 
+                        data_frame_dictionary[column_headings[i]].append(split_data[i])
+                row_number_of_columns = len(split_data)
+                if row_number_of_columns < number_of_columns:
+                    for i in range(row_number_of_columns,number_of_columns):
+                        data_frame_dictionary[column_headings[i]].append(average)
     return data_frame_dictionary
 
 file_name = ["barometer-1617.csv", "indoor-temperature-1617.csv", "outside-temperature-1617.csv","rainfall-1617.csv"]
-
+#file_name = ["test.csv"]
 i = 0
 data_frame = None
-for file in file_name:
-    data_frame_dictionary = create_data_frame(file)
-    print(data_frame_dictionary)
-    frame = DataFrame(data_frame_dictionary)
+previous_file = None
+for file_csv in file_name:
+    data_frame_dictionary = create_data_frame(file_csv)
+    data_frame_dictionary = pd.DataFrame.from_dict(data_frame_dictionary, orient='index').transpose()
+    frame = pd.DataFrame(data_frame_dictionary)
+    split_file_name = re.findall(r"[\w']+", file_csv)
+
     if i == 0:
         data_frame = frame
         i = i + 1
+        previous_file = split_file_name[0]
     else:
         # Not All Of The Data Frames Have The Same Number Of Rows. The Default Position
         # For Merge Is To Delete Rows Which Are Uncommon To The Data Frames Being Merged
-        data_frame = DataFrame.merge(frame, data_frame, on="DateTime", how='right').fillna(0)
+        data_frame = pd.DataFrame.merge(frame, data_frame, on="DateTime",how='right', suffixes=(f"_{split_file_name[0]}",f"_{previous_file}")).fillna(0)
+        previous_file = split_file_name[0]
+print(data_frame)
+
+
+from IPython.core.display import HTML, display
+pd.set_option('max_colwidth', 20)
+data_frame = data_frame.head(10)
 
 print(data_frame)
 
 
 
 
-# Make Sure All of The Rows Are Unique
+#sns.distplot(data_frame["Temperature_outside"])
+#sns.distplot(data_frame["Temperature_range (low)_outside"])
+#sns.distplot(data_frame["Temperature_range (high)_outside"])
+
+#sns.distplot(data_frame["Temperature_indoor"])
+#sns.distplot(data_frame["Temperature_range (low)_indoor"])
+#sns.distplot(data_frame["Temperature_range (high)_indoor"])
+
 
